@@ -1,18 +1,13 @@
-name: Victoria 3 Auto Localization Builder
+name: Build Desktop Executable App
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
-    inputs:
-      download_url:
-        description: 'Direct Link to English YML Zip File (Optional)'
-        required: false
-        default: ''
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-windows-exe:
+    runs-on: windows-latest
 
     steps:
     - name: Checkout Repository
@@ -21,30 +16,19 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.x'
+        python-version: '3.10'
 
-    - name: Prepare Workspace Directories
+    - name: Install Dependencies & PyInstaller
       run: |
-        mkdir -p en_files
-        mkdir -p fa_files
+        python -m pip install --upgrade pip
+        pip install deep-translator arabic-reshaper python-bidi pyinstaller
 
-    - name: Download English Files from URL (If Provided)
-      if: "${{ github.event.inputs.download_url != '' }}"
+    - name: Build Executable File (.exe)
       run: |
-        curl -L "${{ github.event.inputs.download_url }}" -o english_files.zip
-        unzip -o english_files.zip -d en_files/
+        pyinstaller --noconsole --onefile --name "Victoria3_Translator" app.py
 
-    - name: Execute Translation and Font Fix Script
-      run: |
-        python translate.py
-
-    - name: Package Mod Files
-      run: |
-        cd fa_files
-        zip -r ../Victoria3_Persian_Mod.zip .
-
-    - name: Upload Finished Mod Artifact
+    - name: Upload Executable Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Victoria3-Persian-Mod
-        path: Victoria3_Persian_Mod.zip
+        name: Victoria3_Translator_Windows
+        path: dist/Victoria3_Translator.exe
