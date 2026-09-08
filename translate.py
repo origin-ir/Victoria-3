@@ -2,9 +2,21 @@ import os
 import re
 import glob
 from deep_translator import GoogleTranslator
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 # تنظیمات اولیه مترجم
 translator = GoogleTranslator(source='en', target='fa')
+
+def fix_rtl(text):
+    """اصلاح چسبندگی حروف و راست‌به‌چپ کردن متن برای موتور بازی"""
+    if not text:
+        return text
+    # چسباندن حروف به یکدیگر
+    reshaped_text = arabic_reshaper.reshape(text)
+    # معکوس کردن جهت نمایش برای موتور چپ‌به‌راست بازی
+    bidi_text = get_display(reshaped_text)
+    return bidi_text
 
 def is_game_variable(text):
     """بررسی اینکه آیا تمام متن یک متغیر است یا خیر"""
@@ -20,7 +32,7 @@ def translate_text(text):
     if not text or is_game_variable(text):
         return text
 
-    # استخراج و جایگزینی موقت متغیرهای درون متنی برای جلوگیری از خرابی آن‌ها در ترجمه
+    # استخراج و جایگزینی موقت متغیرهای درون متنی
     pattern = r'(\[[^\]]+\]|\$[^\$]+\$|#[a-zA-Z0-9_! ]+#!)'
     placeholders = []
     
@@ -41,27 +53,29 @@ def translate_text(text):
         return text
 
 def process_yml_file(input_file, output_file):
-    """پردازش و ترجمه خط به خط فایل YML بازی"""
+    """پردازش، ترجمه و اصلاح RTL فایل YML بازی"""
     print(f"Processing: {input_file}")
     with open(input_file, 'r', encoding='utf-8-sig') as f:
         lines = f.readlines()
 
     new_lines = []
     for line in lines:
-        # شناسایی خطوط کلید:ارزش در فرمت موتور Paradox (l_english)
         match = re.match(r'^(\s*[a-zA-Z0-9_.\-]+:\d*\s*")([^"]*)("(.*))?$', line)
         if match:
             prefix = match.group(1)
             content = match.group(2)
             suffix = match.group(3) if match.group(3) else '"'
             
-            # تغییر کلید اصلی زبانی اگر l_english باشد
             if "l_english:" in line:
-                new_lines.append("l_english:\n") # یا l_persian بر اساس ساختار مود
+                new_lines.append("l_english:\n")
                 continue
 
+            # ۱. ترجمه متن
             translated_content = translate_text(content)
-            new_lines.append(f"{prefix}{translated_content}{suffix}\n")
+            # ۲. اصلاح چسبندگی و جهت حروف فارسی (RTL)
+            fixed_rtl_content = fix_rtl(translated_content)
+
+            new_lines.append(f"{prefix}{fixed_rtl_content}{suffix}\n")
         else:
             new_lines.append(line)
 
