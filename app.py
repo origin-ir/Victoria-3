@@ -7,7 +7,6 @@ import urllib.request
 import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from concurrent.futures import ThreadPoolExecutor
 
 try:
     from deep_translator import GoogleTranslator
@@ -23,11 +22,11 @@ except ImportError:
 
 CACHE_FILE = "translation_cache.json"
 
-class Victoria3FastTranslatorApp:
+class Victoria3IndexedTurboApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("2. Victoria 3 High-Speed Localizer")
-        self.root.geometry("580x350")
+        self.root.title("Victoria 3 Fast & Precise Localizer")
+        self.root.geometry("600x380")
         self.root.resizable(False, False)
 
         self.game_dir = tk.StringVar()
@@ -35,7 +34,6 @@ class Victoria3FastTranslatorApp:
         self.translator = GoogleTranslator(source='en', target='fa')
         
         self.cache = self.load_cache()
-        self.cache_lock = threading.Lock()
         self.setup_ui()
 
     def load_cache(self):
@@ -48,33 +46,32 @@ class Victoria3FastTranslatorApp:
         return {}
 
     def save_cache(self):
-        with self.cache_lock:
-            try:
-                with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                    json.dump(self.cache, f, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
+        try:
+            with open(CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def setup_ui(self):
-        tk.Label(self.root, text="مرحله دوم: ترجمه سریع و اعمال فونت", font=("Tahoma", 12, "bold")).pack(pady=15)
+        tk.Label(self.root, text="نرم‌افزار ترجمه سریع و دقیق Victoria 3 (موتور ایندکس‌گذاری)", font=("Tahoma", 11, "bold")).pack(pady=12)
 
         frame_game = tk.LabelFrame(self.root, text=" پوشه اصلی بازی ", font=("Tahoma", 9))
         frame_game.pack(fill="x", padx=15, pady=4)
-        tk.Entry(frame_game, textvariable=self.game_dir, width=48).pack(side="left", padx=8, pady=8)
+        tk.Entry(frame_game, textvariable=self.game_dir, width=50).pack(side="left", padx=8, pady=8)
         tk.Button(frame_game, text="انتخاب پوشه", command=self.browse_game).pack(side="right", padx=8, pady=8)
 
         frame_font = tk.LabelFrame(self.root, text=" فایل فونت فارسی (اختیاری) ", font=("Tahoma", 9))
         frame_font.pack(fill="x", padx=15, pady=4)
-        tk.Entry(frame_font, textvariable=self.font_path, width=48).pack(side="left", padx=8, pady=8)
+        tk.Entry(frame_font, textvariable=self.font_path, width=50).pack(side="left", padx=8, pady=8)
         tk.Button(frame_font, text="انتخاب فونت", command=self.browse_font).pack(side="right", padx=8, pady=8)
 
-        self.status_lbl = tk.Label(self.root, text="وضعیت: آماده به کار", font=("Tahoma", 9))
+        self.status_lbl = tk.Label(self.root, text=f"وضعیت: آماده (عبارات حافظه: {len(self.cache)})", font=("Tahoma", 9))
         self.status_lbl.pack(pady=4)
 
-        self.progress = ttk.Progressbar(self.root, orient="horizontal", length=520, mode="determinate")
+        self.progress = ttk.Progressbar(self.root, orient="horizontal", length=540, mode="determinate")
         self.progress.pack(pady=4)
 
-        self.btn_start = tk.Button(self.root, text="شروع ترجمه موازی (مستقیم)", font=("Tahoma", 11, "bold"), bg="#4CAF50", fg="white", command=self.start_thread)
+        self.btn_start = tk.Button(self.root, text="شروع ترجمه هوشمند و سریع", font=("Tahoma", 11, "bold"), bg="#4CAF50", fg="white", command=self.start_thread)
         self.btn_start.pack(pady=12)
 
     def browse_game(self):
@@ -87,6 +84,15 @@ class Victoria3FastTranslatorApp:
         if path:
             self.font_path.set(path)
 
+    def clean_corrupted_artifacts(self, text):
+        if not text:
+            return text
+        text = re.sub(r'_\s*_\s*VAR\s*_\s*\d+\s*_\s*_', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'PH\s*\d+\s*PH', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'XYZ\s*\d+\s*XYZ', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'[a-zA-Z0-9+/=]{20,}', '', text)
+        return re.sub(r'\s+', ' ', text).strip()
+
     def fix_rtl(self, text):
         if not text:
             return text
@@ -96,34 +102,76 @@ class Victoria3FastTranslatorApp:
         except Exception:
             return text
 
-    def translate_text(self, text):
-        if not text or re.match(r'^[a-zA-Z0-9_\-+#=@!\/.]+$', text):
-            return text
+    def translate_batch_indexed(self, text_list):
+        """ترجمه بلوکی متون همراه با شناسه عددی خطوط جهت جلوگیری از جابه‌جایی متون"""
+        results = {}
+        to_translate = []
 
-        with self.cache_lock:
-            if text in self.cache:
-                return self.cache[text]
+        # ۱. بررسی موارد موجود در کش یا متون بدون نیاز به ترجمه
+        for original in text_list:
+            cleaned = self.clean_corrupted_artifacts(original)
+            if not cleaned or re.match(r'^\s*([a-zA-Z0-9_\-+#=@!\/.]+|\$[^\$]+\$|\[[^\]]+\])\s*$', cleaned):
+                results[original] = cleaned
+            elif cleaned in self.cache:
+                results[original] = self.cache[cleaned]
+            else:
+                to_translate.append((original, cleaned))
 
-        pattern = r'(\[[^\]]+\]|\$[^\$]+\$|#[a-zA-Z0-9_! ]+#?|@[a-zA-Z0-9_!]+!)'
-        placeholders = []
+        if not to_translate:
+            return results
 
-        def replace_ph(match):
-            placeholders.append(match.group(0))
-            return f" VAR{len(placeholders)-1} "
+        # ۲. گروه‌بندی ۴۰ خطی متون
+        CHUNK_SIZE = 40
+        for i in range(0, len(to_translate), CHUNK_SIZE):
+            chunk = to_translate[i:i + CHUNK_SIZE]
+            
+            payload_lines = []
+            chunk_placeholders = []
 
-        protected = re.sub(pattern, replace_ph, text)
+            # ماسک کردن متغیرهای بازی با ساختار ایمن _V0_
+            var_pattern = r'(\[[^\]]+\]|\$[^\$]+\$|#[a-zA-Z0-9_! ]+#?|@[a-zA-Z0-9_!]+!)'
+            
+            for idx, (orig, clean) in enumerate(chunk):
+                placeholders = []
+                def replace_var(match):
+                    placeholders.append(match.group(0))
+                    return f" _V{len(placeholders)-1}_ "
 
-        try:
-            translated = self.translator.translate(protected)
-            for i, ph in enumerate(placeholders):
-                ph_regex = re.compile(rf'\s*VAR\s*{i}\s*', re.IGNORECASE)
-                translated = ph_regex.sub(ph, translated)
+                protected = re.sub(var_pattern, replace_var, clean)
+                chunk_placeholders.append(placeholders)
+                payload_lines.append(f"[{idx}] {protected}")
 
-            with self.cache_lock:
-                self.cache[text] = translated
-            return translated
-        except Exception:
-            return text
+            full_payload = "\n".join(payload_lines)
+
+            try:
+                translated_payload = self.translator.translate(full_payload)
+            except Exception:
+                translated_payload = full_payload
+
+            # ۳. تفکیک هوشمند بر اساس شناسه‌های [idx]
+            translated_lines = translated_payload.split("\n")
+            parsed_map = {}
+
+            for line in translated_lines:
+                match = re.match(r'^\s*\[(\d+)\]\s*(.*)$', line)
+                if match:
+                    line_idx = int(match.group(1))
+                    parsed_map[line_idx] = match.group(2).strip()
+
+            # ۴. بازسازی نهایی متن‌ها
+            for idx, (orig, clean) in enumerate(chunk):
+                trans_text = parsed_map.get(idx, clean)
+                placeholders = chunk_placeholders[idx]
+
+                for p_idx, ph in enumerate(placeholders):
+                    ph_regex = re.compile(rf'\s*_V{p_idx}_\s*', re.IGNORECASE)
+                    trans_text = ph_regex.sub(ph, trans_text)
+
+                results[orig] = trans_text
+                self.cache[clean] = trans_text
+
+        self.save_cache()
+        return results
 
     def process_file(self, file_path):
         try:
@@ -132,16 +180,32 @@ class Victoria3FastTranslatorApp:
         except Exception:
             return
 
-        new_lines = []
+        parsed_items = []
+        texts_to_translate = []
+
         for line in lines:
             match = re.match(r'^(\s*[a-zA-Z0-9_.\-]+:\d*\s*")([^"]*)("(.*))?$', line)
             if match:
                 prefix, content, suffix = match.group(1), match.group(2), match.group(3) or '"'
-                translated = self.translate_text(content)
-                fixed_rtl = self.fix_rtl(translated)
+                parsed_items.append((prefix, content, suffix))
+                texts_to_translate.append(content)
+            else:
+                parsed_items.append(line)
+
+        if not texts_to_translate:
+            return
+
+        translated_map = self.translate_batch_indexed(texts_to_translate)
+
+        new_lines = []
+        for item in parsed_items:
+            if isinstance(item, tuple):
+                prefix, content, suffix = item
+                trans_text = translated_map.get(content, content)
+                fixed_rtl = self.fix_rtl(trans_text)
                 new_lines.append(f"{prefix}{fixed_rtl}{suffix}\n")
             else:
-                new_lines.append(line)
+                new_lines.append(item)
 
         with open(file_path, 'w', encoding='utf-8-sig') as f:
             f.writelines(new_lines)
@@ -165,7 +229,7 @@ class Victoria3FastTranslatorApp:
             return
 
         # ۱. اصلاح فونت
-        self.status_lbl.config(text="وضعیت: در حال اعمال فونت فارسی...")
+        self.status_lbl.config(text="وضعیت: در حال جاگذاری فونت فارسی...")
         font_source = self.font_path.get() if self.font_path.get() else os.path.join(os.getcwd(), "vazir.ttf")
         if not os.path.exists(font_source):
             try:
@@ -180,23 +244,21 @@ class Victoria3FastTranslatorApp:
                 except Exception:
                     pass
 
-        # ۲. پردازش پردازش ۵‌نخی فایل‌ها جهت حداکثر سرعت
+        # ۲. پردازش سریع و دقیق فایل‌ها
         yml_files = glob.glob(f"{loc_dir}/**/*.yml", recursive=True)
         total_files = len(yml_files)
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            for idx, _ in enumerate(executor.map(self.process_file, yml_files)):
-                self.status_lbl.config(text=f"ترجمه مستقیم ({idx+1}/{total_files} فایل)...")
-                self.progress['value'] = ((idx + 1) / total_files) * 100
-                if idx % 10 == 0:
-                    self.save_cache()
+        for idx, file_path in enumerate(yml_files):
+            self.status_lbl.config(text=f"ترجمه هوشمند ({idx+1}/{total_files} فایل) | ذخیره: {len(self.cache)}")
+            self.progress['value'] = ((idx + 1) / total_files) * 100
+            self.process_file(file_path)
 
         self.save_cache()
-        self.status_lbl.config(text="وضعیت: عملیات با موفقیت پایان یافت!")
-        messagebox.showinfo("موفقیت", "ترجمه و فونت با سرعت بالا اعمال گردید.")
+        self.status_lbl.config(text="وضعیت: عملیات با موفقیت کامل شد!")
+        messagebox.showinfo("موفقیت", "ترجمه و اعمال فونت با سرعت بالا و بدون تداخل کد انجام شد.")
         self.btn_start.config(state="normal")
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = Victoria3FastTranslatorApp(root)
+    app = Victoria3IndexedTurboApp(root)
     root.mainloop()
