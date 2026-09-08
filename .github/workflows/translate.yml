@@ -1,9 +1,14 @@
-name: Translate Victoria 3 Localization
+name: Victoria 3 Auto Localization Builder
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      download_url:
+        description: 'Direct Link to English YML Zip File (Optional)'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -18,22 +23,28 @@ jobs:
       with:
         python-version: '3.x'
 
-    - name: Install Dependencies
+    - name: Prepare Workspace Directories
       run: |
-        python -m pip install --upgrade pip
-        pip install deep-translator arabic-reshaper python-bidi
+        mkdir -p en_files
+        mkdir -p fa_files
 
-    - name: Run Translation Script
+    - name: Download English Files from URL (If Provided)
+      if: "${{ github.event.inputs.download_url != '' }}"
+      run: |
+        curl -L "${{ github.event.inputs.download_url }}" -o english_files.zip
+        unzip -o english_files.zip -d en_files/
+
+    - name: Execute Translation and Font Fix Script
       run: |
         python translate.py
 
-    - name: Create Release Zip Artifact
+    - name: Package Mod Files
       run: |
         cd fa_files
-        zip -r ../victoria3_farsi_translation.zip .
+        zip -r ../Victoria3_Persian_Mod.zip .
 
-    - name: Upload Translation Artifact
+    - name: Upload Finished Mod Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Victoria3-Farsi-Translation
-        path: victoria3_farsi_translation.zip
+        name: Victoria3-Persian-Mod
+        path: Victoria3_Persian_Mod.zip
