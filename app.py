@@ -22,20 +22,18 @@ except ImportError:
 
 CACHE_FILE = "translation_cache.json"
 
-class Victoria3TurboTranslator:
+class Victoria3CleanTranslatorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Victoria 3 Turbo Localizer (Chunking Engine)")
-        self.root.geometry("600x380")
+        self.root.title("Victoria 3 Auto-Cleaner & Localizer")
+        self.root.geometry("620x420")
         self.root.resizable(False, False)
 
         self.game_dir = tk.StringVar()
         self.font_path = tk.StringVar()
         self.translator = GoogleTranslator(source='en', target='fa')
         
-        # بارگذاری حافظه کش از قبل ذخیره‌شده
         self.cache = self.load_cache()
-
         self.setup_ui()
 
     def load_cache(self):
@@ -54,27 +52,42 @@ class Victoria3TurboTranslator:
         except Exception:
             pass
 
+    def clear_cache_action(self):
+        self.cache = {}
+        if os.path.exists(CACHE_FILE):
+            try:
+                os.remove(CACHE_FILE)
+            except Exception:
+                pass
+        self.update_status("کش ترجمه قبلی کاملاً پاکسازی شد.")
+        messagebox.showinfo("اطلاع", "حافظه کش قبلی پاک شد. تمام فایل‌ها از صفر پردازش خواهند شد.")
+
     def setup_ui(self):
-        tk.Label(self.root, text="نرم‌افزار ترجمه توربو Victoria 3 (Block Engine)", font=("Tahoma", 13, "bold")).pack(pady=15)
+        tk.Label(self.root, text="نرم‌افزار پاکسازی کدهای خراب و ترجمه مجدد Victoria 3", font=("Tahoma", 12, "bold")).pack(pady=12)
 
-        frame_game = tk.LabelFrame(self.root, text=" پوشه اصلی بازی ", font=("Tahoma", 10))
-        frame_game.pack(fill="x", padx=15, pady=5)
-        tk.Entry(frame_game, textvariable=self.game_dir, width=50).pack(side="left", padx=10, pady=10)
-        tk.Button(frame_game, text="انتخاب پوشه", command=self.browse_game).pack(side="right", padx=10, pady=10)
+        frame_game = tk.LabelFrame(self.root, text=" پوشه اصلی بازی ", font=("Tahoma", 9))
+        frame_game.pack(fill="x", padx=15, pady=4)
+        tk.Entry(frame_game, textvariable=self.game_dir, width=52).pack(side="left", padx=8, pady=8)
+        tk.Button(frame_game, text="انتخاب پوشه", command=self.browse_game).pack(side="right", padx=8, pady=8)
 
-        frame_font = tk.LabelFrame(self.root, text=" فایل فونت فارسی (اختیاری) ", font=("Tahoma", 10))
-        frame_font.pack(fill="x", padx=15, pady=5)
-        tk.Entry(frame_font, textvariable=self.font_path, width=50).pack(side="left", padx=10, pady=10)
-        tk.Button(frame_font, text="انتخاب فونت", command=self.browse_font).pack(side="right", padx=10, pady=10)
+        frame_font = tk.LabelFrame(self.root, text=" فایل فونت فارسی (اختیاری) ", font=("Tahoma", 9))
+        frame_font.pack(fill="x", padx=15, pady=4)
+        tk.Entry(frame_font, textvariable=self.font_path, width=52).pack(side="left", padx=8, pady=8)
+        tk.Button(frame_font, text="انتخاب فونت", command=self.browse_font).pack(side="right", padx=8, pady=8)
 
-        self.status_lbl = tk.Label(self.root, text=f"وضعیت: آماده به کار ({len(self.cache)} عبارت در کش موجود است)", font=("Tahoma", 9))
-        self.status_lbl.pack(pady=5)
+        self.status_lbl = tk.Label(self.root, text=f"وضعیت: آماده (تعداد کلیدهای ذخیره: {len(self.cache)})", font=("Tahoma", 9))
+        self.status_lbl.pack(pady=4)
 
-        self.progress = ttk.Progressbar(self.root, orient="horizontal", length=540, mode="determinate")
-        self.progress.pack(pady=5)
+        self.progress = ttk.Progressbar(self.root, orient="horizontal", length=560, mode="determinate")
+        self.progress.pack(pady=4)
 
-        self.btn_start = tk.Button(self.root, text="شروع ترجمه با سرعت توربو", font=("Tahoma", 11, "bold"), bg="#2196F3", fg="white", command=self.start_thread)
-        self.btn_start.pack(pady=15)
+        frame_btns = tk.Frame(self.root)
+        frame_btns.pack(pady=12)
+
+        self.btn_start = tk.Button(frame_btns, text="پاکسازی و ترجمه از صفر", font=("Tahoma", 10, "bold"), bg="#4CAF50", fg="white", px=10, command=self.start_thread)
+        self.btn_start.pack(side="left", padx=5)
+
+        tk.Button(frame_btns, text="حذف کش ترجمه", font=("Tahoma", 10), bg="#f44336", fg="white", command=self.clear_cache_action).pack(side="left", padx=5)
 
     def browse_game(self):
         path = filedialog.askdirectory(title="پوشه اصلی بازی Victoria 3 را انتخاب کنید")
@@ -86,6 +99,25 @@ class Victoria3TurboTranslator:
         if path:
             self.font_path.set(path)
 
+    def update_status(self, text):
+        self.status_lbl.config(text=f"وضعیت: {text}")
+
+    def clean_corrupted_artifacts(self, text):
+        """پاکسازی کدهای خراب جا مانده از ترجمه‌های قبلی"""
+        if not text:
+            return text
+        
+        # ۱. حذف متغیرهای خراب‌شده مانند __VAR_0__ یا _ VAR _ 1 _
+        text = re.sub(r'_\s*_\s*VAR\s*_\s*\d+\s*_\s*_', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'PH\s*\d+\s*PH', '', text, flags=re.IGNORECASE)
+        
+        # ۲. حذف کاراکترها و متن‌های هش/بیس۶۴ نامفهوم مثل e+6ju+7pO...
+        text = re.sub(r'[a-zA-Z0-9+/=]{25,}', '', text)
+        
+        # ۳. تمیزکاری فاصله‌های اضافی
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
     def fix_rtl(self, text):
         if not text:
             return text
@@ -95,81 +127,42 @@ class Victoria3TurboTranslator:
         except Exception:
             return text
 
-    def translate_blocks(self, text_list):
-        """ادغام متون در پاراگراف‌های بزرگ برای ارسال یک‌باره به گوگل"""
-        results = {}
-        to_translate_texts = []
+    def clean_and_translate_text(self, text):
+        # پاکسازی اولیه کدهای خرابی که قبلاً در فایل وارد شده‌اند
+        cleaned_text = self.clean_corrupted_artifacts(text)
         
-        # ۱. جداسازی مواردی که در کش هستند یا متغیر خالصند
-        for text in text_list:
-            text_str = text.strip()
-            if not text or (text_str.startswith('[') and text_str.endswith(']')) or (text_str.startswith('$') and text_str.endswith('$')):
-                results[text] = text
-            elif text in self.cache:
-                results[text] = self.cache[text]
-            else:
-                to_translate_texts.append(text)
+        if not cleaned_text:
+            return text
 
-        if not to_translate_texts:
-            return results
+        if cleaned_text in self.cache:
+            return self.cache[cleaned_text]
 
-        # ۲. گروه بندی متون تا حجم ۲۰۰۰ کاراکتر در هر درخواست
-        chunks = []
-        current_chunk = []
-        current_length = 0
+        # جدا کردن متغیرهای استاندارد بازی Paradox ($...$, [...], #...#!, @...!)
+        pattern = r'(\[[^\]]+\]|\$[^\$]+\$|#[a-zA-Z0-9_! ]+#?|@[a-zA-Z0-9_!]+!)'
+        placeholders = []
 
-        for text in to_translate_texts:
-            if current_length + len(text) > 2000:
-                chunks.append(current_chunk)
-                current_chunk = [text]
-                current_length = len(text)
-            else:
-                current_chunk.append(text)
-                current_length += len(text)
-        if current_chunk:
-            chunks.append(current_chunk)
+        def replace_ph(match):
+            placeholders.append(match.group(0))
+            return f" XYZ{len(placeholders)-1}XYZ "
 
-        # ۳. ارسال بلوکی
-        DELIMITER = " === "
-        pattern = r'(\[[^\]]+\]|\$[^\$]+\$|#[a-zA-Z0-9_! ]+#!)'
+        protected = re.sub(pattern, replace_ph, cleaned_text)
 
-        for chunk in chunks:
-            protected_chunk = []
-            chunk_placeholders = []
+        # اگر متن فقط شامل کد یا کلید اختصاصی بود، ترجمه نشود
+        if re.match(r'^\s*(XYZ\d+XYZ\s*)+$', protected):
+            return cleaned_text
 
-            for text in chunk:
-                placeholders = []
-                def replace_ph(match):
-                    placeholders.append(match.group(0))
-                    return f"__VAR_{len(placeholders)-1}__"
+        try:
+            translated = self.translator.translate(protected)
+            
+            # بازگرداندن متغیرها به شکل دقیق
+            for i, ph in enumerate(placeholders):
+                ph_regex = re.compile(rf'\s*XYZ\s*{i}\s*XYZ\s*', re.IGNORECASE)
+                translated = ph_regex.sub(ph, translated)
 
-                protected = re.sub(pattern, replace_ph, text)
-                protected_chunk.append(protected)
-                chunk_placeholders.append(placeholders)
-
-            # اتصال خطوط با جداکننده ویژه
-            joined_text = DELIMITER.join(protected_chunk)
-
-            try:
-                translated_joined = self.translator.translate(joined_text)
-                translated_split = translated_joined.split("===")
-            except Exception:
-                translated_split = protected_chunk
-
-            # بازسازی متن‌ها و قرار دادن در کش
-            for i, orig_text in enumerate(chunk):
-                if i < len(translated_split):
-                    trans_text = translated_split[i].strip()
-                    placeholders = chunk_placeholders[i]
-                    for ph_i, ph in enumerate(placeholders):
-                        trans_text = trans_text.replace(f"__VAR_{ph_i}__", ph)
-                    results[orig_text] = trans_text
-                    self.cache[orig_text] = trans_text
-                else:
-                    results[orig_text] = orig_text
-
-        self.save_cache()
-        return results
+            self.cache[cleaned_text] = translated
+            return translated
+        except Exception:
+            return cleaned_text
 
     def process_file(self, file_path):
         try:
@@ -178,36 +171,19 @@ class Victoria3TurboTranslator:
         except Exception:
             return
 
-        parsed_lines = []
-        texts_to_translate = []
-
+        new_lines = []
         for line in lines:
             match = re.match(r'^(\s*[a-zA-Z0-9_.\-]+:\d*\s*")([^"]*)("(.*))?$', line)
             if match:
                 prefix = match.group(1)
                 content = match.group(2)
                 suffix = match.group(3) if match.group(3) else '"'
-                
-                parsed_lines.append((prefix, content, suffix))
-                texts_to_translate.append(content)
-            else:
-                parsed_lines.append(line)
 
-        if not texts_to_translate:
-            return
-
-        # ترجمه بلوکی عبارات فایل
-        translated_map = self.translate_blocks(texts_to_translate)
-
-        new_lines = []
-        for item in parsed_lines:
-            if isinstance(item, tuple):
-                prefix, content, suffix = item
-                trans_text = translated_map.get(content, content)
-                fixed_rtl = self.fix_rtl(trans_text)
+                translated = self.clean_and_translate_text(content)
+                fixed_rtl = self.fix_rtl(translated)
                 new_lines.append(f"{prefix}{fixed_rtl}{suffix}\n")
             else:
-                new_lines.append(item)
+                new_lines.append(line)
 
         with open(file_path, 'w', encoding='utf-8-sig') as f:
             f.writelines(new_lines)
@@ -231,7 +207,7 @@ class Victoria3TurboTranslator:
             return
 
         # ۱. اصلاح فونت
-        self.status_lbl.config(text="وضعیت: در حال اعمال فونت فارسی...")
+        self.update_status("در حال جاگذاری فونت فارسی...")
         font_source = self.font_path.get() if self.font_path.get() else os.path.join(os.getcwd(), "vazir.ttf")
         if not os.path.exists(font_source):
             try:
@@ -246,20 +222,24 @@ class Victoria3TurboTranslator:
                 except Exception:
                     pass
 
-        # ۲. پردازش توربو فایل‌ها
+        # ۲. پردازش و پاکسازی کامل فایل‌ها
         yml_files = glob.glob(f"{loc_dir}/**/*.yml", recursive=True)
         total_files = len(yml_files)
 
         for idx, file_path in enumerate(yml_files):
-            self.status_lbl.config(text=f"ترجمه توربو ({idx+1}/{total_files} فایل) | عبارات ذخیره‌شده: {len(self.cache)}")
+            self.update_status(f"پاکسازی و پردازش ({idx+1}/{total_files} فایل)...")
             self.progress['value'] = ((idx + 1) / total_files) * 100
             self.process_file(file_path)
 
-        self.status_lbl.config(text="وضعیت: عملیات با موفقیت پایان یافت!")
-        messagebox.showinfo("موفقیت", "ترجمه، اصلاح فونت و چسبندگی حروف با موفقیت کامل شد.")
+            if idx % 5 == 0:
+                self.save_cache()
+
+        self.save_cache()
+        self.update_status("عملیات پاکسازی و ترجمه با موفقیت کامل شد!")
+        messagebox.showinfo("موفقیت", "تمام فایل‌ها پاکسازی شده و ترجمه جدید اعمال گردید.")
         self.btn_start.config(state="normal")
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = Victoria3TurboTranslator(root)
+    app = Victoria3CleanTranslatorApp(root)
     root.mainloop()
