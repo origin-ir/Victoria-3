@@ -6,8 +6,8 @@ import threading
 import urllib.request
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from concurrent.futures import ThreadPoolExecutor
 
-# بررسی و نصب پکیج‌های پیش‌نیاز در صورت اجرای مستقیم کد
 try:
     from deep_translator import GoogleTranslator
     import arabic_reshaper
@@ -20,46 +20,43 @@ except ImportError:
     import arabic_reshaper
     from bidi.algorithm import get_display
 
-class Victoria3TranslatorApp:
+class FastVictoria3TranslatorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Victoria 3 Farsi Localizer (Desktop Version)")
+        self.root.title("Victoria 3 Farsi Localizer (High Speed)")
         self.root.geometry("600x380")
         self.root.resizable(False, False)
 
         self.game_dir = tk.StringVar()
         self.font_path = tk.StringVar()
         self.translator = GoogleTranslator(source='en', target='fa')
+        
+        # حافظه کش برای جلوگیری از ترجمه مجدد کلمات تکراری
+        self.cache = {}
+        self.cache_lock = threading.Lock()
 
         self.setup_ui()
 
     def setup_ui(self):
-        # عنوان
-        tk.Label(self.root, text="نرم‌افزار فارسی‌سازی Victoria 3 روی سیستم", font=("Tahoma", 14, "bold")).pack(pady=15)
+        tk.Label(self.root, text="نرم‌افزار ترجمه سریع Victoria 3", font=("Tahoma", 14, "bold")).pack(pady=15)
 
-        # انتخاب پوشه بازی
-        frame_game = tk.LabelFrame(self.root, text=" پوشه اصلی بازی روی سیستم ", font=("Tahoma", 10))
+        frame_game = tk.LabelFrame(self.root, text=" پوشه اصلی بازی ", font=("Tahoma", 10))
         frame_game.pack(fill="x", padx=15, pady=5)
-
         tk.Entry(frame_game, textvariable=self.game_dir, width=50).pack(side="left", padx=10, pady=10)
         tk.Button(frame_game, text="انتخاب پوشه", command=self.browse_game).pack(side="right", padx=10, pady=10)
 
-        # انتخاب فونت اختصاصی (اختیاری)
-        frame_font = tk.LabelFrame(self.root, text=" فایل فونت فارسی (اختیاری - .ttf) ", font=("Tahoma", 10))
+        frame_font = tk.LabelFrame(self.root, text=" فایل فونت فارسی (اختیاری) ", font=("Tahoma", 10))
         frame_font.pack(fill="x", padx=15, pady=5)
-
         tk.Entry(frame_font, textvariable=self.font_path, width=50).pack(side="left", padx=10, pady=10)
         tk.Button(frame_font, text="انتخاب فونت", command=self.browse_font).pack(side="right", padx=10, pady=10)
 
-        # وضعیت و Progress Bar
         self.status_lbl = tk.Label(self.root, text="وضعیت: آماده به کار", font=("Tahoma", 9))
         self.status_lbl.pack(pady=5)
 
         self.progress = ttk.Progressbar(self.root, orient="horizontal", length=540, mode="determinate")
         self.progress.pack(pady=5)
 
-        # دکمه شروع
-        self.btn_start = tk.Button(self.root, text="شروع عملیات ترجمه و اصلاح فایل‌ها", font=("Tahoma", 11, "bold"), bg="#2196F3", fg="white", command=self.start_thread)
+        self.btn_start = tk.Button(self.root, text="شروع ترجمه سریع (Multi-threaded)", font=("Tahoma", 11, "bold"), bg="#4CAF50", fg="white", command=self.start_thread)
         self.btn_start.pack(pady=15)
 
     def browse_game(self):
@@ -78,10 +75,15 @@ class Victoria3TranslatorApp:
         reshaped = arabic_reshaper.reshape(text)
         return get_display(reshaped)
 
-    def translate_text(self, text):
+    def translate_single_string(self, text):
         text_str = text.strip()
         if not text or (text_str.startswith('[') and text_str.endswith(']')) or (text_str.startswith('$') and text_str.endswith('$')):
             return text
+
+        # بررسی حافظه کش
+        with self.cache_lock:
+            if text in self.cache:
+                return self.cache[text]
 
         pattern = r'(\[[^\]]+\]|\$[^\$]+\$|#[a-zA-Z0-9_! ]+#!)'
         placeholders = []
@@ -96,9 +98,38 @@ class Victoria3TranslatorApp:
             translated = self.translator.translate(protected_text)
             for i, ph in enumerate(placeholders):
                 translated = translated.replace(f"__VAR_{i}__", ph)
+            
+            # ذخیره در کش
+            with self.cache_lock:
+                self.cache[text] = translated
             return translated
         except Exception:
             return text
+
+    def process_file(self, file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8-sig') as f:
+                lines = f.readlines()
+        except Exception:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            match = re.match(r'^(\s*[a-zA-Z0-9_.\-]+:\d*\s*")([^"]*)("(.*))?$', line)
+            if match:
+                prefix = match.group(1)
+                content = match.group(2)
+                suffix = match.group(3) if match.group(3) else '"'
+
+                translated = self.translate_single_string(content)
+                fixed_rtl = self.fix_rtl(translated)
+                new_lines.append(f"{prefix}{fixed_rtl}{suffix}\n")
+            else:
+                new_lines.append(line)
+
+        with open(file_path, 'w', encoding='utf-8-sig') as f:
+            f.writelines(new_lines)
 
     def start_thread(self):
         if not self.game_dir.get() or not os.path.exists(self.game_dir.get()):
@@ -118,17 +149,14 @@ class Victoria3TranslatorApp:
             self.btn_start.config(state="normal")
             return
 
-        # ۱. اصلاح فونت برای جلوگیری از مربع شدن کلمات
+        # ۱. اصلاح فونت
         self.status_lbl.config(text="وضعیت: در حال اعمال فونت فارسی...")
-        if self.font_path.get() and os.path.exists(self.font_path.get()):
-            font_source = self.font_path.get()
-        else:
-            font_source = os.path.join(os.getcwd(), "vazir.ttf")
-            if not os.path.exists(font_source):
-                try:
-                    urllib.request.urlretrieve("https://github.com/rastikerdar/vazirmatn/releases/download/v33.003/Vazirmatn-Regular.ttf", font_source)
-                except Exception:
-                    pass
+        font_source = self.font_path.get() if self.font_path.get() else os.path.join(os.getcwd(), "vazir.ttf")
+        if not os.path.exists(font_source):
+            try:
+                urllib.request.urlretrieve("https://github.com/rastikerdar/vazirmatn/releases/download/v33.003/Vazirmatn-Regular.ttf", font_source)
+            except Exception:
+                pass
 
         if os.path.exists(font_source) and os.path.exists(fonts_dir):
             for target_font in glob.glob(os.path.join(fonts_dir, "*.ttf")):
@@ -137,44 +165,21 @@ class Victoria3TranslatorApp:
                 except Exception:
                     pass
 
-        # ۲. ترجمه و اصلاح RTL فایل‌ها
+        # ۲. پردازش و ترجمه چندنخی (Multi-threaded)
         yml_files = glob.glob(f"{loc_dir}/**/*.yml", recursive=True)
         total_files = len(yml_files)
 
-        for idx, file_path in enumerate(yml_files):
-            filename = os.path.basename(file_path)
-            self.status_lbl.config(text=f"در حال ترجمه ({idx+1}/{total_files}): {filename}")
-            self.progress['value'] = ((idx + 1) / total_files) * 100
-
-            try:
-                with open(file_path, 'r', encoding='utf-8-sig') as f:
-                    lines = f.readlines()
-            except Exception:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines()
-
-            new_lines = []
-            for line in lines:
-                match = re.match(r'^(\s*[a-zA-Z0-9_.\-]+:\d*\s*")([^"]*)("(.*))?$', line)
-                if match:
-                    prefix = match.group(1)
-                    content = match.group(2)
-                    suffix = match.group(3) if match.group(3) else '"'
-
-                    translated = self.translate_text(content)
-                    fixed_rtl = self.fix_rtl(translated)
-                    new_lines.append(f"{prefix}{fixed_rtl}{suffix}\n")
-                else:
-                    new_lines.append(line)
-
-            with open(file_path, 'w', encoding='utf-8-sig') as f:
-                f.writelines(new_lines)
+        # اجرای پردازش ۱۰ فایل به‌صورت هم‌زمان
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            for idx, _ in enumerate(executor.map(self.process_file, yml_files)):
+                self.status_lbl.config(text=f"در حال پردازش سریع ({idx+1}/{total_files} فایل)...")
+                self.progress['value'] = ((idx + 1) / total_files) * 100
 
         self.status_lbl.config(text="وضعیت: عملیات با موفقیت پایان یافت!")
-        messagebox.showinfo("موفقیت", "فارسی‌سازی بازی، اصلاح چسبندگی حروف و تعویض فونت‌ها با موفقیت روی سیستم شما انجام شد.")
+        messagebox.showinfo("موفقیت", "ترجمه و اصلاح کامل فایل‌های بازی با سرعت بالا انجام شد.")
         self.btn_start.config(state="normal")
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = Victoria3TranslatorApp(root)
+    app = FastVictoria3TranslatorApp(root)
     root.mainloop()
