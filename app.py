@@ -84,7 +84,7 @@ class Victoria3CleanTranslatorApp:
         frame_btns = tk.Frame(self.root)
         frame_btns.pack(pady=12)
 
-        self.btn_start = tk.Button(frame_btns, text="پاکسازی و ترجمه از صفر", font=("Tahoma", 10, "bold"), bg="#4CAF50", fg="white", px=10, command=self.start_thread)
+        self.btn_start = tk.Button(frame_btns, text="پاکسازی و ترجمه از صفر", font=("Tahoma", 10, "bold"), bg="#4CAF50", fg="white", padx=10, command=self.start_thread)
         self.btn_start.pack(side="left", padx=5)
 
         tk.Button(frame_btns, text="حذف کش ترجمه", font=("Tahoma", 10), bg="#f44336", fg="white", command=self.clear_cache_action).pack(side="left", padx=5)
@@ -103,18 +103,11 @@ class Victoria3CleanTranslatorApp:
         self.status_lbl.config(text=f"وضعیت: {text}")
 
     def clean_corrupted_artifacts(self, text):
-        """پاکسازی کدهای خراب جا مانده از ترجمه‌های قبلی"""
         if not text:
             return text
-        
-        # ۱. حذف متغیرهای خراب‌شده مانند __VAR_0__ یا _ VAR _ 1 _
         text = re.sub(r'_\s*_\s*VAR\s*_\s*\d+\s*_\s*_', '', text, flags=re.IGNORECASE)
         text = re.sub(r'PH\s*\d+\s*PH', '', text, flags=re.IGNORECASE)
-        
-        # ۲. حذف کاراکترها و متن‌های هش/بیس۶۴ نامفهوم مثل e+6ju+7pO...
         text = re.sub(r'[a-zA-Z0-9+/=]{25,}', '', text)
-        
-        # ۳. تمیزکاری فاصله‌های اضافی
         text = re.sub(r'\s+', ' ', text).strip()
         return text
 
@@ -128,7 +121,6 @@ class Victoria3CleanTranslatorApp:
             return text
 
     def clean_and_translate_text(self, text):
-        # پاکسازی اولیه کدهای خرابی که قبلاً در فایل وارد شده‌اند
         cleaned_text = self.clean_corrupted_artifacts(text)
         
         if not cleaned_text:
@@ -137,7 +129,6 @@ class Victoria3CleanTranslatorApp:
         if cleaned_text in self.cache:
             return self.cache[cleaned_text]
 
-        # جدا کردن متغیرهای استاندارد بازی Paradox ($...$, [...], #...#!, @...!)
         pattern = r'(\[[^\]]+\]|\$[^\$]+\$|#[a-zA-Z0-9_! ]+#?|@[a-zA-Z0-9_!]+!)'
         placeholders = []
 
@@ -147,14 +138,11 @@ class Victoria3CleanTranslatorApp:
 
         protected = re.sub(pattern, replace_ph, cleaned_text)
 
-        # اگر متن فقط شامل کد یا کلید اختصاصی بود، ترجمه نشود
         if re.match(r'^\s*(XYZ\d+XYZ\s*)+$', protected):
             return cleaned_text
 
         try:
             translated = self.translator.translate(protected)
-            
-            # بازگرداندن متغیرها به شکل دقیق
             for i, ph in enumerate(placeholders):
                 ph_regex = re.compile(rf'\s*XYZ\s*{i}\s*XYZ\s*', re.IGNORECASE)
                 translated = ph_regex.sub(ph, translated)
@@ -206,7 +194,6 @@ class Victoria3CleanTranslatorApp:
             self.btn_start.config(state="normal")
             return
 
-        # ۱. اصلاح فونت
         self.update_status("در حال جاگذاری فونت فارسی...")
         font_source = self.font_path.get() if self.font_path.get() else os.path.join(os.getcwd(), "vazir.ttf")
         if not os.path.exists(font_source):
@@ -222,7 +209,6 @@ class Victoria3CleanTranslatorApp:
                 except Exception:
                     pass
 
-        # ۲. پردازش و پاکسازی کامل فایل‌ها
         yml_files = glob.glob(f"{loc_dir}/**/*.yml", recursive=True)
         total_files = len(yml_files)
 
